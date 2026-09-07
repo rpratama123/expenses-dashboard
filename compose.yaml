@@ -1,0 +1,53 @@
+name: expenses-dashboard
+
+services:
+  expenses-dashboard:
+    build:
+      context: .
+      args:
+        APP_UID: ${PUID:-99}
+        APP_GID: ${PGID:-100}
+    image: expenses-dashboard:${IMAGE_TAG:-local}
+    container_name: expenses-dashboard
+    restart: unless-stopped
+    init: true
+    user: "${PUID:-99}:${PGID:-100}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      INCOMING_DIR: /incoming
+      DATA_DIR: /data
+      POLL_SECONDS: ${POLL_SECONDS:-30}
+      FX_POLL_SECONDS: ${FX_POLL_SECONDS:-3600}
+      REPORT_TIMEZONE: ${REPORT_TIMEZONE:-Asia/Jakarta}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN in .env}
+      MAX_IMPORT_BYTES: ${MAX_IMPORT_BYTES:-536870912}
+      SNAPSHOT_RETENTION: ${SNAPSHOT_RETENTION:-2}
+    volumes:
+      - /mnt/user/webdav/expenses:/incoming:ro
+      - /mnt/cache/appdata/expenses-dashboard:/data:rw
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,uid=${PUID:-99},gid=${PGID:-100},mode=1777
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+    networks:
+      - npm
+
+networks:
+  npm:
+    external: true
+    name: ${NPM_NETWORK:-proxynet}

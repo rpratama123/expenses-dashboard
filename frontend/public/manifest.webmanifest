@@ -1,0 +1,16 @@
+{
+  "id": "/",
+  "name": "Expenses Dashboard",
+  "short_name": "Expenses",
+  "description": "A private dashboard for reviewing expense activity.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#17221d",
+  "background_color": "#17221d",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
