@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
-CURRENCY_SCALES = {"IDR": 1, "USD": 100}
+CURRENCY_SCALES = {"IDR": 1, "USD": 100, "SGD": 100, "MYR": 100}
 
 
 def validate_amount(amount_minor: object, currency: str) -> int:
@@ -15,9 +15,10 @@ def validate_amount(amount_minor: object, currency: str) -> int:
 
 def original_amount_text(amount_minor: int, currency: str) -> str:
     validate_amount(amount_minor, currency)
-    if currency == "IDR":
+    scale = CURRENCY_SCALES[currency]
+    if scale == 1:
         return str(amount_minor)
-    return f"{amount_minor // 100}.{amount_minor % 100:02d}"
+    return f"{amount_minor // scale}.{amount_minor % scale:0{len(str(scale)) - 1}d}"
 
 
 def parse_rate(rate: object) -> Decimal:
@@ -36,5 +37,5 @@ def to_idr(amount_minor: int, currency: str, rate: Decimal | str | None = None) 
         return amount_minor
     if rate is None:
         return None
-    converted = (Decimal(amount_minor) / CURRENCY_SCALES["USD"]) * parse_rate(rate)
+    converted = (Decimal(amount_minor) / CURRENCY_SCALES[currency]) * parse_rate(rate)
     return int(converted.quantize(Decimal("1"), rounding=ROUND_HALF_UP))

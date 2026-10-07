@@ -13,6 +13,12 @@ describe('exact money display', () => {
     expect(formatOriginal('5', 'USD')).toBe('US$0.05')
   })
 
+  it('formats other scaled currencies with two decimals and unknown ones verbatim', () => {
+    expect(formatOriginal('138', 'SGD')).toBe('SGD 1.38')
+    expect(formatOriginal('250', 'MYR')).toBe('MYR 2.50')
+    expect(formatOriginal('184000', 'IDR')).toBe('Rp184,000')
+  })
+
   it('uses numeric conversion only for chart geometry', () => {
     expect(chartNumber('90560')).toBe(90560)
     expect(chartNumber('not-money')).toBe(0)

@@ -9,6 +9,11 @@ def test_confirmed_currency_scales_and_conversion() -> None:
     assert original_amount_text(5000, "IDR") == "5000"
     assert original_amount_text(566, "USD") == "5.66"
     assert to_idr(566, "USD", Decimal("16000")) == 90_560
+    # Other declared currencies use the same 100 scale as USD.
+    assert original_amount_text(138, "SGD") == "1.38"
+    assert original_amount_text(250, "MYR") == "2.50"
+    assert to_idr(138, "SGD", Decimal("12000")) == 16_560
+    assert to_idr(138, "SGD", None) is None
 
 
 def test_rounds_each_transaction_half_up() -> None:

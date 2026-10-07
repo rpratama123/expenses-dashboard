@@ -29,6 +29,21 @@ def row(identifier: str, amount: int = 100, deleted: str | None = None) -> tuple
     )
 
 
+def row_currency(identifier: str, amount: int, currency: str, deleted: str | None = None) -> tuple:
+    return (
+        identifier,
+        "2026-09-05T10:00:00+07:00",
+        amount,
+        currency,
+        "Bank",
+        "card",
+        "Merchant",
+        "food_drink",
+        "private note",
+        deleted,
+    )
+
+
 def publish(settings, source_factory, stamp: str, rows: list[tuple], **kwargs) -> Path:
     path = settings.incoming_dir / f"expenses-{stamp}.sqlite3"
     source_factory(path, rows, **kwargs)
@@ -237,3 +252,40 @@ def test_replacement_population_keeps_wal_readers_on_active_projection(
             "SELECT COUNT(*) FROM expenses_projection_replacement"
         ).fetchone()[0] == 2
     clean_orphan_snapshots(settings)
+
+
+def test_foreign_currency_row_does_not_abort_snapshot(settings, source_factory) -> None:
+    publish(
+        settings,
+        source_factory,
+        "20260905T000000Z",
+        [row("idr"), row_currency("sgd", 138, "SGD"), row_currency("myr", 250, "MYR")],
+    )
+    assert ingest_newest(settings)
+    with connect(settings.database_path) as connection:
+        rows = {
+            row["id"]: (row["amount_minor"], row["currency"])
+            for row in connection.execute(
+                "SELECT id, amount_minor, currency FROM expenses_projection ORDER BY id"
+            )
+        }
+        assert rows == {"idr": (100, "IDR"), "myr": (250, "MYR"), "sgd": (138, "SGD")}
+        assert connection.execute(
+            "SELECT COUNT(*) FROM imports WHERE status='failed'"
+        ).fetchone()[0] == 0
+
+
+def test_projection_accepts_new_currency_codes_after_migration(settings, source_factory) -> None:
+    # The v1 schema restricted currency to IDR/USD; migration 002 must relax it.
+    with connect(settings.database_path) as connection:
+        assert connection.execute(
+            "SELECT 1 FROM app_migrations WHERE version=2"
+        ).fetchone() is not None
+        connection.execute(
+            "INSERT INTO expenses_projection VALUES("
+            "'x','2026-09-05T03:00:00+00:00','2026-09-05',138,'SGD',"
+            "NULL,NULL,'M','food_drink',NULL)"
+        )
+        assert connection.execute(
+            "SELECT currency FROM expenses_projection WHERE id='x'"
+        ).fetchone()[0] == "SGD"

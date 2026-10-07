@@ -25,15 +25,28 @@ def connect(path: Path, *, readonly: bool = False) -> sqlite3.Connection:
 
 
 def initialize(path: Path) -> None:
-    migration = Path(__file__).with_name("migrations") / "001_initial.sql"
+    migrations_dir = Path(__file__).with_name("migrations")
     with connect(path) as connection:
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
-        connection.executescript(migration.read_text(encoding="utf-8"))
-        connection.execute(
-            "INSERT OR IGNORE INTO app_migrations(version, applied_at) VALUES(1, ?)",
-            (utc_now(),),
+        # Create the ledger before consulting it so it exists on a fresh database.
+        connection.executescript(
+            "CREATE TABLE IF NOT EXISTS app_migrations ("
+            "version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
         )
+        applied = {
+            row[0] for row in connection.execute("SELECT version FROM app_migrations")
+        }
+        for migration in sorted(migrations_dir.glob("*.sql")):
+            version = int(migration.name.split("_", 1)[0])
+            if version in applied:
+                continue
+            connection.executescript(migration.read_text(encoding="utf-8"))
+            connection.execute(
+                "INSERT OR IGNORE INTO app_migrations(version, applied_at) VALUES(?, ?)",
+                (version, utc_now()),
+            )
+            applied.add(version)
 
 
 @contextmanager

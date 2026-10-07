@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from .db import connect, get_state, read_transaction
 from .fx import PUBLICATION_GRACE_DAYS
+from .money import CURRENCY_SCALES
 from .queries import (
     SnapshotUnavailableError,
     current_month,
@@ -32,15 +33,23 @@ def _unavailable() -> HTTPException:
     )
 
 
+def _last_import_error(connection) -> dict | None:
+    # A failure only matters until the next successful import supersedes it.
+    row = connection.execute(
+        "SELECT filename, failure_reason, imported_at FROM imports "
+        "WHERE status='failed' AND id > COALESCE("
+        "(SELECT MAX(id) FROM imports WHERE status IN ('accepted', 'duplicate')), 0) "
+        "ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return dict(row) if row else None
+
+
 @router.get("/status")
 def status(request: Request) -> dict:
     settings = request.app.state.settings
     with connect(settings.database_path, readonly=True) as connection:
         revision = get_state(connection, "dataset_revision")
-        last_failure = connection.execute(
-            "SELECT filename, failure_reason, imported_at FROM imports WHERE status='failed' "
-            "ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        last_failure = _last_import_error(connection)
         return {
             "api_schema_version": 1,
             "cache_schema_version": 1,
@@ -50,7 +59,7 @@ def status(request: Request) -> dict:
             "source_filename": get_state(connection, "active_snapshot_filename"),
             "source_timestamp": get_state(connection, "active_snapshot_timestamp"),
             "imported_at": get_state(connection, "active_imported_at"),
-            "last_import_error": dict(last_failure) if last_failure else None,
+            "last_import_error": last_failure,
             "reporting_timezone": settings.report_timezone,
         }
 
@@ -62,10 +71,7 @@ def application_settings(request: Request) -> dict:
         revision = get_state(connection, "dataset_revision")
         source_timestamp = get_state(connection, "active_snapshot_timestamp")
         imported_at = get_state(connection, "active_imported_at")
-        last_failure = connection.execute(
-            "SELECT filename, failure_reason, imported_at FROM imports WHERE status='failed' "
-            "ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        last_failure = _last_import_error(connection)
         fx = connection.execute(
             "SELECT MIN(effective_date) AS oldest, MAX(effective_date) AS newest, "
             "MAX(fetched_at) AS last_fetch FROM fx_rates"
@@ -75,7 +81,7 @@ def application_settings(request: Request) -> dict:
             WITH required AS (
                 SELECT DISTINCT jakarta_date
                 FROM expenses_projection
-                WHERE currency='USD'
+                WHERE currency!='IDR'
             )
             SELECT
                 COUNT(*) AS required_days,
@@ -93,9 +99,9 @@ def application_settings(request: Request) -> dict:
             """
             SELECT
                 COUNT(*) AS total_count,
-                COALESCE(SUM(e.currency='USD' AND r.rate_text IS NULL), 0) AS missing_count,
+                COALESCE(SUM(e.currency!='IDR' AND r.rate_text IS NULL), 0) AS missing_count,
                 COALESCE(SUM(
-                    e.currency='USD'
+                    e.currency!='IDR'
                     AND a.status='provisional'
                     AND r.rate_text IS NOT NULL
                 ), 0)
@@ -140,7 +146,7 @@ def application_settings(request: Request) -> dict:
             "data": {
                 "reporting_timezone": settings.report_timezone,
                 "reporting_currency": "IDR",
-                "currency_scales": {"IDR": 1, "USD": 100},
+                "currency_scales": dict(CURRENCY_SCALES),
                 "fx_provider": "Frankfurter / ECB",
                 "fx_policy": "Historical Jakarta transaction date; no future rates",
                 "fx_publication_grace_days": PUBLICATION_GRACE_DAYS,
@@ -149,7 +155,7 @@ def application_settings(request: Request) -> dict:
                     "filename": get_state(connection, "active_snapshot_filename"),
                     "source_timestamp": source_timestamp,
                     "imported_at": imported_at,
-                    "last_import_error": dict(last_failure) if last_failure else None,
+                    "last_import_error": last_failure,
                 },
                 "fx_coverage": {
                     "status": fx_status,

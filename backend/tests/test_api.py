@@ -265,3 +265,68 @@ def test_streamed_summary_matches_transaction_conversion_and_aggregate_semantics
         {"merchant": "B Merchant", "total_idr": "100", "transaction_count": 1},
         {"merchant": "A Merchant", "total_idr": "2", "transaction_count": 1},
     ]
+
+
+def test_foreign_currency_is_original_only_and_reported_missing(settings, source_factory) -> None:
+    publish(
+        settings,
+        source_factory,
+        [
+            expense("idr", "2026-09-05T10:00:00+07:00", 100, "Shop"),
+            (
+                "sgd",
+                "2026-09-05T10:00:00+07:00",
+                138,
+                "SGD",
+                "Jenius",
+                "card",
+                "Oracle",
+                "software_tools",
+                None,
+                None,
+            ),
+        ],
+    )
+    with TestClient(create_app(settings)) as client:
+        page = client.get("/api/v1/transactions").json()
+        items = {item["id"]: item for item in page["data"]["items"]}
+        assert items["sgd"]["original_amount"] == "1.38"
+        assert items["sgd"]["amount_minor"] == "138"
+        assert items["sgd"]["converted_idr"] is None
+        assert page["metadata"]["conversion"] == {
+            "complete": False,
+            "converted_count": 1,
+            "missing_count": 1,
+            "provisional_count": 0,
+        }
+        settings_payload = client.get("/api/v1/settings").json()["data"]
+        assert settings_payload["currency_scales"] == {
+            "IDR": 1,
+            "USD": 100,
+            "SGD": 100,
+            "MYR": 100,
+        }
+        assert settings_payload["fx_coverage"]["status"] == "incomplete"
+
+
+def test_last_import_error_clears_after_a_later_success(settings, source_factory) -> None:
+    with TestClient(create_app(settings)) as client:
+        with connect(settings.database_path) as connection:
+            connection.execute(
+                "INSERT INTO imports(filename, source_identity, status, failure_reason, "
+                "imported_at) VALUES('bad.sqlite3','x','failed','integrity check failed',"
+                "'2026-09-06T01:00:00+00:00')"
+            )
+        assert client.get("/api/v1/settings").json()["data"]["source"][
+            "last_import_error"
+        ]["filename"] == "bad.sqlite3"
+        assert client.get("/api/v1/status").json()["last_import_error"]["filename"] == "bad.sqlite3"
+
+    publish(
+        settings,
+        source_factory,
+        [expense("ok", "2026-09-05T10:00:00+07:00", 100, "Shop")],
+    )
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/api/v1/settings").json()["data"]["source"]["last_import_error"] is None
+        assert client.get("/api/v1/status").json()["last_import_error"] is None

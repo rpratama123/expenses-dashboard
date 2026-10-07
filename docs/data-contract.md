@@ -22,11 +22,11 @@ The source must be a valid SQLite database with compatible source migrations and
 - Stable, unique `id`
 - `expense_at`, a valid instant with an offset
 - `amount_minor`, a positive integer using the explicit currency scale
-- `currency`, currently `IDR` or `USD`
+- `currency`, an uppercase ISO-4217 code the dashboard has an explicit scale for (currently `IDR`, `USD`, `SGD`, or `MYR`)
 - `bank`, `payment_method`, `merchant`, `category`, and nullable `note`
 - `deleted_at`, where non-null records are excluded
 
-Unknown additive columns may be ignored. Missing required columns, unsupported migration semantics, malformed timestamps, duplicate IDs, unsupported currencies, invalid integer amounts, corruption, or a failed integrity check reject the candidate. A rejected snapshot never replaces the active dataset.
+Unknown additive columns may be ignored. Missing required columns, unsupported migration semantics, malformed timestamps, duplicate IDs, unsupported currencies, invalid integer amounts, corruption, or a failed integrity check reject the candidate. A rejected snapshot never replaces the active dataset. A currency the dashboard has no scale for still rejects the candidate; adding a declared currency is a dashboard change (`app/money.py → CURRENCY_SCALES`).
 
 Only dashboard fields are projected. Receipt locations and hashes, raw email/input, audit records, ingestion provenance, and classification internals are not exposed. Uploaded databases and retained copies are never served as files.
 
@@ -38,10 +38,14 @@ Currency scale is fixed rather than inferred:
 | --- | ---: | --- |
 | IDR | `5000` | Rp5,000 |
 | USD | `566` | US$5.66 |
+| SGD | `138` | S$1.38 |
+| MYR | `250` | RM2.50 |
 
 The reporting timezone is `Asia/Jakarta`. Historical conversion selects the most recent stored USD-to-IDR ECB reference rate published on or before the expense's Jakarta calendar date; it never uses a future rate. USD conversion is `(amount_minor / 100) * rate`, rounded per transaction to whole rupiah with decimal `ROUND_HALF_UP`. IDR is already whole rupiah. Aggregates sum the same rounded per-transaction values shown by the dashboard.
 
-Recent assignments can be provisional during the publication grace period and may change after reconciliation. Finalized assignments remain fixed. If no applicable rate is stored, the original USD amount remains available but converted totals identify the excluded count rather than using zero or an invented rate.
+Only USD has a stored IDR rate path today. Other non-IDR currencies (for example `SGD` or `MYR`) are accepted and displayed in their original currency, but count as missing conversions until a USD-based rate path is defined for them; they are never summed into the IDR total or converted with an invented rate.
+
+Recent assignments can be provisional during the publication grace period and may change after reconciliation. Finalized assignments remain fixed. If no applicable rate is stored, the original amount remains available but converted totals identify the excluded count rather than using zero or an invented rate.
 
 ## Adoption and retention
 
