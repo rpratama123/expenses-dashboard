@@ -42,6 +42,8 @@ docker compose ps
 docker compose logs --no-log-prefix expenses-dashboard
 ```
 
+The service sets `pull_policy: build` because the image is built locally and never published to a registry. This keeps an explicit `docker compose pull` (which Unraid's "force update" runs before `up`) from trying to fetch `expenses-dashboard:local` and failing with `pull access denied`, and forces `docker compose up` to rebuild from source. Do not add a `pull_policy` that pulls this service.
+
 Do not pass `--platform`; Docker should select the host architecture. The service exposes port 8000 only to the shared Docker network and publishes no host port. NPM's forwarding destination is `expenses-dashboard:8000` with scheme `http`.
 
 Configuration:
@@ -97,5 +99,7 @@ docker compose build --pull
 docker compose up -d
 docker compose ps
 ```
+
+Unraid's Compose Manager "force update" performs a `docker compose pull` before bringing the stack up; `pull_policy: build` makes that step skip this locally built image instead of failing.
 
 Do not run an older binary against an application database migrated to an incompatible newer schema. Roll back the image together with its compatible pre-upgrade `/data` backup. Clear incompatible browser financial caches and refresh/reinstall the compatible service worker online. Pause digest automation while deploying an image that does not provide its stable endpoint.

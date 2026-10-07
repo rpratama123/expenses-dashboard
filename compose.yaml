@@ -8,6 +8,11 @@ services:
         APP_UID: ${PUID:-99}
         APP_GID: ${PGID:-100}
     image: expenses-dashboard:${IMAGE_TAG:-local}
+    # The image is built locally and never published to a registry. Without this,
+    # an explicit `docker compose pull` (as Unraid's "force update" runs) tries to
+    # fetch expenses-dashboard:local and fails with "pull access denied".
+    # `build` makes pull skip the image and forces `up` to rebuild it.
+    pull_policy: build
     container_name: expenses-dashboard
     restart: unless-stopped
     init: true
