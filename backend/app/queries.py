@@ -86,9 +86,9 @@ SELECT e.*, a.status AS fx_status, a.effective_date AS fx_rate_date,
        r.rate_text AS fx_rate, r.provider AS fx_source
 FROM expenses_projection e
 LEFT JOIN fx_day_assignments a
-  ON e.currency='USD' AND a.requested_date=e.jakarta_date
+  ON a.base=e.currency AND a.requested_date=e.jakarta_date AND a.quote='IDR'
 LEFT JOIN fx_rates r
-  ON r.provider=a.provider AND r.base='USD' AND r.quote='IDR'
+  ON r.provider=a.provider AND r.base=a.base AND r.quote=a.quote
  AND r.effective_date=a.effective_date
 """
 
@@ -97,9 +97,9 @@ SELECT e.amount_minor, e.currency, e.merchant, e.category, e.jakarta_date,
        a.status AS fx_status, r.rate_text AS fx_rate
 FROM expenses_projection e
 LEFT JOIN fx_day_assignments a
-  ON e.currency='USD' AND a.requested_date=e.jakarta_date
+  ON a.base=e.currency AND a.requested_date=e.jakarta_date AND a.quote='IDR'
 LEFT JOIN fx_rates r
-  ON r.provider=a.provider AND r.base='USD' AND r.quote='IDR'
+  ON r.provider=a.provider AND r.base=a.base AND r.quote=a.quote
  AND r.effective_date=a.effective_date
 """
 

@@ -1,6 +1,6 @@
 # Expenses Dashboard
 
-A mobile-first, read-only dashboard for complete SQLite expense snapshots. A single FastAPI process serves the API and built React application; SQLite application state, snapshot ingestion, and historical USD-to-IDR rates require no external database or worker.
+A mobile-first, read-only dashboard for complete SQLite expense snapshots. A single FastAPI process serves the API and built React application; SQLite application state, snapshot ingestion, and historical FX reference rates require no external database or worker.
 
 The intended production path is Cloudflare Tunnel to Nginx Proxy Manager (NPM) to the container. NPM Basic Auth is the access control boundary. The application itself has no login and must not be exposed around that boundary.
 
@@ -61,7 +61,7 @@ The architecture-neutral base image tags allow Docker to select the host archite
 
 The producer publishes a consistent standalone database and then its exact-name `.ready` marker. The application polls for completed pairs, validates and copies a candidate, and atomically replaces its projection. It never modifies or removes incoming files. Failed imports or FX refreshes leave the last known good data available. See the data contract before configuring a producer.
 
-IDR amounts have scale 1. USD amounts have scale 100 and are converted with stored historical ECB reference rates by the expense's Asia/Jakarta date. Conversion rounds each transaction to whole rupiah using decimal `ROUND_HALF_UP`; aggregates sum those rounded transaction values. Missing and provisional FX states remain visible.
+IDR amounts have scale 1; USD, SGD, and MYR have scale 100 and are converted with stored historical ECB reference rates by the expense's Asia/Jakarta date. Conversion rounds each transaction to whole rupiah using decimal `ROUND_HALF_UP`; aggregates sum those rounded transaction values. Each currency is fetched independently, and missing or provisional FX states remain visible.
 
 Offline support is deliberately bounded to the app shell and exact API views that were successfully visited. It is not a full offline copy, and browser storage can be evicted. Cached financial data remains on a trusted device after NPM credentials are revoked until it is cleared or evicted. See [privacy and offline behavior](docs/privacy-offline.md).
 

@@ -79,7 +79,7 @@ def application_settings(request: Request) -> dict:
         coverage = connection.execute(
             """
             WITH required AS (
-                SELECT DISTINCT jakarta_date
+                SELECT DISTINCT currency, jakarta_date
                 FROM expenses_projection
                 WHERE currency!='IDR'
             )
@@ -90,8 +90,9 @@ def application_settings(request: Request) -> dict:
                 COALESCE(SUM(a.status='provisional'), 0) AS provisional_days,
                 COALESCE(SUM(a.requested_date IS NULL OR r.rate_text IS NULL), 0) AS missing_days
             FROM required q
-            LEFT JOIN fx_day_assignments a ON a.requested_date=q.jakarta_date
-            LEFT JOIN fx_rates r ON r.provider=a.provider AND r.base='USD' AND r.quote='IDR'
+            LEFT JOIN fx_day_assignments a
+              ON a.requested_date=q.jakarta_date AND a.base=q.currency AND a.quote='IDR'
+            LEFT JOIN fx_rates r ON r.provider=a.provider AND r.base=a.base AND r.quote=a.quote
               AND r.effective_date=a.effective_date
             """
         ).fetchone()
@@ -108,9 +109,9 @@ def application_settings(request: Request) -> dict:
                     AS provisional_count
             FROM expenses_projection e
             LEFT JOIN fx_day_assignments a
-              ON e.currency='USD' AND a.requested_date=e.jakarta_date
+              ON a.base=e.currency AND a.requested_date=e.jakarta_date AND a.quote='IDR'
             LEFT JOIN fx_rates r
-              ON r.provider=a.provider AND r.base='USD' AND r.quote='IDR'
+              ON r.provider=a.provider AND r.base=a.base AND r.quote=a.quote
              AND r.effective_date=a.effective_date
             """
         ).fetchone()

@@ -142,7 +142,7 @@ def test_settings_is_typed_cacheable_envelope_with_source_and_fx_status(
             )
             connection.execute(
                 "INSERT INTO fx_day_assignments VALUES("
-                "'2026-09-05','ECB','2026-09-05','provisional',1,"
+                "'2026-09-05','USD','IDR','ECB','2026-09-05','provisional',1,"
                 "'2026-09-06T00:00:00+00:00')"
             )
             set_state(connection, "fx_revision", "1")
@@ -214,7 +214,7 @@ def test_streamed_summary_matches_transaction_conversion_and_aggregate_semantics
         )
         connection.execute(
             "INSERT INTO fx_day_assignments VALUES("
-            "'2026-09-05','ECB','2026-09-05','provisional',1,"
+            "'2026-09-05','USD','IDR','ECB','2026-09-05','provisional',1,"
             "'2026-09-05T12:00:00+00:00')"
         )
 
@@ -307,6 +307,53 @@ def test_foreign_currency_is_original_only_and_reported_missing(settings, source
             "MYR": 100,
         }
         assert settings_payload["fx_coverage"]["status"] == "incomplete"
+
+
+def test_foreign_currency_converts_once_its_rate_is_stored(settings, source_factory) -> None:
+    publish(
+        settings,
+        source_factory,
+        [
+            expense("idr", "2026-09-05T10:00:00+07:00", 100, "Shop"),
+            (
+                "sgd",
+                "2026-09-05T10:00:00+07:00",
+                138,
+                "SGD",
+                "Jenius",
+                "card",
+                "Oracle",
+                "software_tools",
+                None,
+                None,
+            ),
+        ],
+    )
+    with TestClient(create_app(settings)) as client:
+        with connect(settings.database_path) as connection:
+            connection.execute(
+                "INSERT INTO fx_rates VALUES("
+                "'ECB','SGD','IDR','2026-09-05','14026','2026-09-05T12:00:00+00:00')"
+            )
+            connection.execute(
+                "INSERT INTO fx_day_assignments VALUES("
+                "'2026-09-05','SGD','IDR','ECB','2026-09-05','finalized',1,"
+                "'2026-09-05T12:00:00+00:00')"
+            )
+        page = client.get("/api/v1/transactions").json()
+        items = {item["id"]: item for item in page["data"]["items"]}
+        # 138 / 100 * 14026 = 19355.88 -> Rp19,356 (half-up), never summed raw.
+        assert items["sgd"]["converted_idr"] == "19356"
+        assert items["sgd"]["fx_rate"] == "14026"
+        assert items["sgd"]["fx_rate_date"] == "2026-09-05"
+        assert page["metadata"]["conversion"]["complete"] is True
+        summary = client.get(
+            "/api/v1/summary", params={"start_date": "2026-09-01", "end_date": "2026-09-30"}
+        ).json()
+        assert summary["data"]["total_idr"] == "19456"
+        coverage = client.get("/api/v1/settings").json()["data"]["fx_coverage"]
+        assert coverage["status"] == "finalized"
+        assert coverage["finalized_days"] == 1
 
 
 def test_last_import_error_clears_after_a_later_success(settings, source_factory) -> None:

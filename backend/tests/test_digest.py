@@ -95,8 +95,8 @@ def test_missing_and_provisional_fx_are_explicit(settings, source_factory) -> No
                 "'2026-09-05T00:00:00Z')"
             )
             connection.execute(
-                "INSERT INTO fx_day_assignments VALUES('2026-09-05','ECB','2026-09-05',"
-                "'provisional',1,'2026-09-05T00:00:00Z')"
+                "INSERT INTO fx_day_assignments VALUES('2026-09-05','USD','IDR','ECB',"
+                "'2026-09-05','provisional',1,'2026-09-05T00:00:00Z')"
             )
             set_state(connection, "fx_revision", "1")
         provisional = client.get(

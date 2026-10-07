@@ -11,11 +11,13 @@ import httpx
 
 from .config import Settings
 from .db import connect, get_state, set_state, utc_now
-from .money import parse_rate
+from .money import CURRENCY_SCALES, parse_rate
 
 PROVIDER = "ECB"
-BASE = "USD"
 QUOTE = "IDR"
+# Every declared currency except the reporting currency itself is fetched as
+# BASE/IDR. The quote is always IDR because all displayed totals are rupiah.
+RATE_BASES = tuple(code for code in CURRENCY_SCALES if code != QUOTE)
 POLICY_REVISION = 1
 PUBLICATION_GRACE_DAYS = 7
 FRANKFURTER_ORIGIN = "https://api.frankfurter.dev"
@@ -26,7 +28,7 @@ class FrankfurterClient:
     def __init__(self, client: httpx.Client | None = None) -> None:
         self._client = client
 
-    def fetch_rate(self, requested_date: date) -> tuple[date, Decimal]:
+    def fetch_rate(self, base: str, quote: str, requested_date: date) -> tuple[date, Decimal]:
         owned = self._client is None
         client = self._client or httpx.Client(
             base_url=FRANKFURTER_ORIGIN,
@@ -38,7 +40,7 @@ class FrankfurterClient:
             for attempt in range(3):
                 try:
                     response = client.get(
-                        f"/v2/rate/{BASE}/{QUOTE}",
+                        f"/v2/rate/{base}/{quote}",
                         params={"providers": PROVIDER, "date": requested_date.isoformat()},
                     )
                     if response.status_code != 429 and response.status_code < 500:
@@ -65,12 +67,17 @@ class FrankfurterClient:
 
 
 def _store_rate(
-    connection: sqlite3.Connection, effective: date, rate: Decimal, fetched_at: str
+    connection: sqlite3.Connection,
+    base: str,
+    quote: str,
+    effective: date,
+    rate: Decimal,
+    fetched_at: str,
 ) -> None:
     existing = connection.execute(
         "SELECT rate_text FROM fx_rates WHERE provider=? AND base=? AND quote=? "
         "AND effective_date=?",
-        (PROVIDER, BASE, QUOTE, effective.isoformat()),
+        (PROVIDER, base, quote, effective.isoformat()),
     ).fetchone()
     if existing:
         # Finalized provider observations are intentionally immutable.
@@ -78,15 +85,17 @@ def _store_rate(
     connection.execute(
         "INSERT INTO fx_rates(provider, base, quote, effective_date, rate_text, fetched_at) "
         "VALUES(?, ?, ?, ?, ?, ?)",
-        (PROVIDER, BASE, QUOTE, effective.isoformat(), format(rate, "f"), fetched_at),
+        (PROVIDER, base, quote, effective.isoformat(), format(rate, "f"), fetched_at),
     )
 
 
-def _best_stored_rate(connection: sqlite3.Connection, requested: date) -> sqlite3.Row | None:
+def _best_stored_rate(
+    connection: sqlite3.Connection, base: str, quote: str, requested: date
+) -> sqlite3.Row | None:
     return connection.execute(
         "SELECT effective_date, rate_text FROM fx_rates WHERE provider=? AND base=? AND quote=? "
         "AND effective_date<=? ORDER BY effective_date DESC LIMIT 1",
-        (PROVIDER, BASE, QUOTE, requested.isoformat()),
+        (PROVIDER, base, quote, requested.isoformat()),
     ).fetchone()
 
 
@@ -123,58 +132,64 @@ def _reconcile_needed_rates(
     provider = client or FrankfurterClient()
     today = today or datetime.now(ZoneInfo(settings.report_timezone)).date()
     with connect(settings.database_path) as connection:
-        requested_dates = [
-            date.fromisoformat(row[0])
+        required = [
+            (row["currency"], date.fromisoformat(row["jakarta_date"]))
             for row in connection.execute(
-                "SELECT DISTINCT jakarta_date FROM expenses_projection WHERE currency='USD'"
+                "SELECT DISTINCT currency, jakarta_date FROM expenses_projection "
+                "WHERE currency!=? ORDER BY currency, jakarta_date",
+                (QUOTE,),
             )
         ]
         existing = {
-            row["requested_date"]: row
+            (row["requested_date"], row["base"], row["quote"]): row
             for row in connection.execute("SELECT * FROM fx_day_assignments")
         }
-    observations: dict[date, tuple[date, Decimal] | None] = {}
-    for requested in requested_dates:
+    observations: dict[tuple[str, date], tuple[date, Decimal] | None] = {}
+    for base, requested in required:
         if stop_event is not None and stop_event.is_set():
             return 0
-        old = existing.get(requested.isoformat())
+        old = existing.get((requested.isoformat(), base, QUOTE))
         if old and old["status"] == "finalized":
             continue
         try:
-            observations[requested] = provider.fetch_rate(requested)
+            observations[(base, requested)] = provider.fetch_rate(base, QUOTE, requested)
         except (httpx.HTTPError, ValueError):
-            observations[requested] = None
+            observations[(base, requested)] = None
     changed = 0
     with connect(settings.database_path) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        for observation in observations.values():
+        for (base, _requested), observation in observations.items():
             if observation is not None:
                 effective, rate = observation
-                _store_rate(connection, effective, rate, utc_now())
-        for requested in requested_dates:
-            old = existing.get(requested.isoformat())
+                _store_rate(connection, base, QUOTE, effective, rate, utc_now())
+        for base, requested in required:
+            old = existing.get((requested.isoformat(), base, QUOTE))
             if old and old["status"] == "finalized":
                 continue
-            selected = _best_stored_rate(connection, requested)
+            selected = _best_stored_rate(connection, base, QUOTE, requested)
             if selected is None:
                 continue
             old_effective = old["effective_date"] if old else None
             old_status = old["status"] if old else None
             status = (
                 "finalized"
-                if observations.get(requested) is not None
+                if observations.get((base, requested)) is not None
                 and requested <= today - timedelta(days=PUBLICATION_GRACE_DAYS)
                 else "provisional"
             )
             connection.execute(
-                "INSERT INTO fx_day_assignments(requested_date, provider, effective_date, status, "
-                "policy_revision, updated_at) VALUES(?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(requested_date) DO UPDATE SET provider=excluded.provider, "
-                "effective_date=excluded.effective_date, status=excluded.status, "
-                "policy_revision=excluded.policy_revision, updated_at=excluded.updated_at "
+                "INSERT INTO fx_day_assignments(requested_date, base, quote, provider, "
+                "effective_date, status, policy_revision, updated_at) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(requested_date, base, quote) DO UPDATE SET "
+                "provider=excluded.provider, effective_date=excluded.effective_date, "
+                "status=excluded.status, policy_revision=excluded.policy_revision, "
+                "updated_at=excluded.updated_at "
                 "WHERE fx_day_assignments.status!='finalized'",
                 (
                     requested.isoformat(),
+                    base,
+                    QUOTE,
                     PROVIDER,
                     selected["effective_date"],
                     status,
@@ -200,16 +215,24 @@ def collect_daily_rate(
         return False
     provider = client or FrankfurterClient()
     requested = datetime.now(ZoneInfo(settings.report_timezone)).date()
-    try:
-        effective, rate = provider.fetch_rate(requested)
-    except (httpx.HTTPError, ValueError):
-        return False
+    fetched: list[tuple[str, date, Decimal]] = []
+    for base in RATE_BASES:
+        if stop_event is not None and stop_event.is_set():
+            return False
+        try:
+            effective, rate = provider.fetch_rate(base, QUOTE, requested)
+        except (httpx.HTTPError, ValueError):
+            continue
+        fetched.append((base, effective, rate))
     if stop_event is not None and stop_event.is_set():
         return False
+    inserted_any = False
     with connect(settings.database_path) as connection:
-        before = _best_stored_rate(connection, effective)
-        _store_rate(connection, effective, rate, utc_now())
-        return before is None
+        for base, effective, rate in fetched:
+            before = _best_stored_rate(connection, base, QUOTE, effective)
+            _store_rate(connection, base, QUOTE, effective, rate, utc_now())
+            inserted_any = inserted_any or before is None
+    return inserted_any
 
 
 def maintain_fx(

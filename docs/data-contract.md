@@ -41,9 +41,9 @@ Currency scale is fixed rather than inferred:
 | SGD | `138` | S$1.38 |
 | MYR | `250` | RM2.50 |
 
-The reporting timezone is `Asia/Jakarta`. Historical conversion selects the most recent stored USD-to-IDR ECB reference rate published on or before the expense's Jakarta calendar date; it never uses a future rate. USD conversion is `(amount_minor / 100) * rate`, rounded per transaction to whole rupiah with decimal `ROUND_HALF_UP`. IDR is already whole rupiah. Aggregates sum the same rounded per-transaction values shown by the dashboard.
+The reporting timezone is `Asia/Jakarta`. For every non-IDR currency in the active snapshot, historical conversion selects the most recent stored `<currency>`-to-IDR ECB reference rate published on or before the expense's Jakarta calendar date; it never uses a future rate. Conversion is `(amount_minor / scale) * rate`, rounded per transaction to whole rupiah with decimal `ROUND_HALF_UP`, where `scale` comes from the table above. IDR is already whole rupiah. Aggregates sum the same rounded per-transaction values shown by the dashboard.
 
-Only USD has a stored IDR rate path today. Other non-IDR currencies (for example `SGD` or `MYR`) are accepted and displayed in their original currency, but count as missing conversions until a USD-based rate path is defined for them; they are never summed into the IDR total or converted with an invented rate.
+Each currency is fetched and assigned independently and has its own provisional/finalized state; a missing rate for one currency never blocks another. A currency the provider does not quote (Frankfurter/ECB exposes a fixed set) stays original-only and counts as a missing conversion; it is never summed into the IDR total or converted with an invented rate.
 
 Recent assignments can be provisional during the publication grace period and may change after reconciliation. Finalized assignments remain fixed. If no applicable rate is stored, the original amount remains available but converted totals identify the excluded count rather than using zero or an invented rate.
 
