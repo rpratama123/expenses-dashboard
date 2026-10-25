@@ -47,7 +47,9 @@ Vite serves `http://localhost:5173` and proxies `/api` and `/health` to the loca
 
 ## Container
 
-Create `.env` from `.env.example`, set the real HTTPS `PUBLIC_ORIGIN`, UID/GID, and existing NPM network, then validate and build:
+The publish workflow (`.github/workflows/publish.yml`) runs the backend and frontend checks, then builds the image and pushes it to `ghcr.io/rpratama123/expenses-dashboard` (single `linux/amd64` digest; Unraid hosts are amd64-only). Pushes to `main` publish `latest` and `sha-<sha>` tags; pushing a `v*` tag publishes that version tag. Unraid deploys by pulling the image with the template at `unraid/expenses-dashboard.xml`; see [Unraid deployment](docs/deployment-unraid.md).
+
+For a local build instead, create `.env` from `.env.example`, set the real HTTPS `PUBLIC_ORIGIN`, UID/GID, and existing NPM network, then validate and build:
 
 ```sh
 docker compose config
@@ -55,7 +57,7 @@ docker compose build
 docker compose up -d
 ```
 
-The architecture-neutral base image tags allow Docker to select the host architecture; the Dockerfile does not force `amd64` or another platform. The final image contains neither Node.js nor the sample database. It runs one non-root Uvicorn worker on port 8000 with a read-only root filesystem. Only `/data` and the bounded `/tmp` tmpfs are writable; `/incoming` is read-only.
+The compose file is a local build/validation fixture, not the Unraid deployment path. The architecture-neutral base image tags allow Docker to select the host architecture; the Dockerfile does not force `amd64` or another platform. The final image contains neither Node.js nor the sample database. It runs one non-root Uvicorn worker on port 8000 with a read-only root filesystem. Only `/data` and the bounded `/tmp` tmpfs are writable; `/incoming` is read-only.
 
 ## Operating model
 

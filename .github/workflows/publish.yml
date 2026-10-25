@@ -1,0 +1,102 @@
+# Publishes a linux/amd64 container image to GHCR so Unraid can pull updates
+# directly (Unraid is amd64-only, so no multi-arch/QEMU build is needed).
+#
+# - pushes to `main` publish `latest` and `sha-<sha>` tags
+# - pushes of `v*` tags publish the version tag itself
+# - pull requests run the checks without building or pushing an image
+name: publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  # ghcr.io requires lowercase; the repository id already is.
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  checks:
+    name: Backend and frontend checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Backend ruff
+        run: uv run --project backend ruff check backend
+
+      - name: Backend pytest
+        run: uv run --project backend pytest backend/tests
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend lint, typecheck, unit tests
+        run: |
+          npm --prefix frontend ci
+          npm --prefix frontend run lint
+          npm --prefix frontend run typecheck
+          npm --prefix frontend run test -- --run
+
+      # Requires PUBLIC_ORIGIN (compose interpolation errors otherwise); this
+      # only validates the compose file, no containers are built or started.
+      - name: Compose file check
+        env:
+          PUBLIC_ORIGIN: https://checks.invalid
+        run: docker compose config >/dev/null
+
+  publish:
+    name: Build and publish image
+    needs: checks
+    if: |
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=tag
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,3 +1,5 @@
+# Local build/validation fixture only. Unraid deployment pulls the GHCR image
+# published by .github/workflows/publish.yml (see docs/deployment-unraid.md).
 name: expenses-dashboard
 
 services:

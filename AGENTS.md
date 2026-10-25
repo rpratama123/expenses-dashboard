@@ -1,8 +1,9 @@
 # AGENTS.md
 
 Mobile-first, read-only expenses dashboard. One FastAPI process serves the API and the
-built React app; SQLite only. No CI, no pre-commit, no workspace tooling at the root.
-Commands are run from the repository root with explicit project/prefix flags.
+built React app; SQLite only. CI is a single publish workflow (`.github/workflows/publish.yml`);
+no pre-commit, no workspace tooling at the root. Commands are run from the repository root
+with explicit project/prefix flags.
 
 ## Layout
 
@@ -10,7 +11,10 @@ Commands are run from the repository root with explicit project/prefix flags.
 - `frontend/` — React 19 + Vite + TypeScript, PWA/Workbox, Dexie offline cache, `npm`. Unit tests (Vitest) live beside sources; e2e in `frontend/e2e/`.
 - `docs/` — authoritative contracts. Read the relevant one before changing behavior: `data-contract.md`, `api-digest.md`, `deployment-unraid.md`, `recovery.md`, `privacy-offline.md`, `performance.md`.
 - `sample/` — `favicon.svg` is the icon source of truth; `sample/expenses.sqlite3` is the only committed database (gitignored `*.sqlite3` has an exception for it).
-- `Dockerfile` / `compose.yaml` — multi-stage image; final image has no Node and no sample DB. Compose targets Unraid behind Nginx Proxy Manager Basic Auth.
+- `Dockerfile` — multi-stage image; final image has no Node and no sample DB.
+- `compose.yaml` — local build/validation fixture only, targets Unraid behind Nginx Proxy Manager Basic Auth; it is not the deployment path.
+- `unraid/expenses-dashboard.xml` — Unraid Docker template that pulls the published GHCR image; the deployment contract for Unraid.
+- `.github/workflows/publish.yml` — backend checks then frontend checks, then publishes one `linux/amd64` image to GHCR: `latest`/`sha-*` on pushes to `main`, the raw tag on `v*` tags.
 
 ## Commands (run from root)
 
@@ -56,4 +60,5 @@ npm --prefix frontend run test:e2e
 
 - Validate compose changes with `docker compose config`; build with `docker compose build`. Do not pass `--platform`.
 - Container runs non-root with a read-only root FS, `/data` writable, `/incoming` read-only, and a bounded `/tmp` tmpfs.
+- The Unraid deployment is GHCR-pull based: `unraid/expenses-dashboard.xml` references `ghcr.io/rpratama123/expenses-dashboard:latest`, the image target is `linux/amd64` only (Unraid hosts are amd64-only). `compose.yaml` stays a local fixture with `image: expenses-dashboard:${IMAGE_TAG:-local}` and `pull_policy: build` — do not switch it to a pull-based policy or treat its `PUID`/`PGID`/`IMAGE_TAG` build args as deploy-time settings. See `docs/deployment-unraid.md`.
 - Backup/restore and FX-failure behavior are documented in `docs/recovery.md`; a WAL database must not be backed up by copying only the main file.

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container version="2">
+  <Name>expenses-dashboard</Name>
+  <Repository>ghcr.io/rpratama123/expenses-dashboard:latest</Repository>
+  <Registry>https://ghcr.io/</Registry>
+  <Network>custom:proxynet</Network>
+  <WebUI>https://replace-with-your-origin/</WebUI>
+  <Icon>https://raw.githubusercontent.com/rpratama123/expenses-dashboard/main/sample/favicon.svg</Icon>
+  <Project>https://github.com/rpratama123/expenses-dashboard</Project>
+  <Support>https://github.com/rpratama123/expenses-dashboard/issues</Support>
+  <Category>Network:Other</Category>
+  <Overview>
+    Mobile-first, read-only dashboard for SQLite expense snapshots. One FastAPI
+    process serves both the API and the built React app; SQLite only, no
+    external database or worker. Intended to sit behind Nginx Proxy Manager
+    Basic Access Authentication (the app itself has no login); reached through
+    a Cloudflare Tunnel. The container listens on port 8000 only inside the
+    custom network; no host port is published. The producer publishes a
+    consistent snapshot and its exact-name `.ready` marker into the incoming
+    directory.
+
+    Unraid's template editor cannot express every hardening control used by the
+    local compose file (read-only root filesystem, `cap_drop: ALL`,
+    `no-new-privileges`, the bounded `/tmp` tmpfs). The image itself runs a
+    single non-root Uvicorn worker. If Extra Arguments such as
+    `--read-only --cap-drop ALL` are applied, they are passed verbatim to
+    `docker run`; verify with `docker inspect` after creating the container and
+    compare against the compose file before exposing anything.
+  </Overview>
+  <Config Name="Dashboard data" Target="/data" Default="/mnt/user/appdata/expenses-dashboard" Mode="rw" Type="Path" Display="always" Required="true" Description="Application state, WAL files, import staging, persisted FX rates, retained snapshots. Must be owned by 99:100."/>
+  <Config Name="Incoming snapshots" Target="/incoming" Default="/mnt/user/webdav/expenses" Mode="ro" Type="Path" Display="always" Required="true" Description="Completed snapshot pairs from the producer; the application only reads this directory."/>
+  <Config Name="PUBLIC_ORIGIN" Target="PUBLIC_ORIGIN" Default="" Mode="" Type="Variable" Display="always" Required="false" Description="Exact externally visible HTTPS origin with no path, as configured in Cloudflare/NPM (for example https://expenses.example.com). Required for the app to start."/>
+  <Config Name="POLL_SECONDS" Target="POLL_SECONDS" Default="30" Mode="" Type="Variable" Display="advanced" Required="false" Description="Completed-upload polling interval in seconds."/>
+  <Config Name="FX_POLL_SECONDS" Target="FX_POLL_SECONDS" Default="3600" Mode="" Type="Variable" Display="advanced" Required="false" Description="Stored historical-rate refresh interval in seconds."/>
+  <Config Name="REPORT_TIMEZONE" Target="REPORT_TIMEZONE" Default="Asia/Jakarta" Mode="" Type="Variable" Display="advanced" Required="false" Description="Dashboard and FX-date policy timezone (IANA name)."/>
+  <Config Name="MAX_IMPORT_BYTES" Target="MAX_IMPORT_BYTES" Default="536870912" Mode="" Type="Variable" Display="advanced" Required="false" Description="Maximum accepted snapshot candidate size in bytes."/>
+  <Config Name="SNAPSHOT_RETENTION" Target="SNAPSHOT_RETENTION" Default="2" Mode="" Type="Variable" Display="advanced" Required="false" Description="Successful local raw snapshot copies retained in /data."/>
+  <Config Name="TZ" Target="TZ" Default="Asia/Jakarta" Mode="" Type="Variable" Display="advanced" Required="false" Description="Container timezone for logs; report timezone is set separately."/>
+</Container>
